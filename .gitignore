@@ -1,0 +1,6 @@
+.venv/
+.vscode/
+__pycache__/
+build/
+receiver_set.txt
+sender_set.txt
