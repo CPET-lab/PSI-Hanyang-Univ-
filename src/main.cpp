@@ -5,13 +5,17 @@ const int e_num = 16;
 const int s_num = 59;
 const double scale = pow(2.0, s_num);
 const int N_num = 17;
-const int depth = 41;
+const int depth = 42;
 
 // PSI params.
 const int dim = 128;
 const int set_size = 256; // 256, 512, 1024
 const double epsilon = pow(2.0, -e_num);
 const int alpha = 66;
+
+// debug params.
+const bool print_result = false;
+const bool check_time = false;
 
 int main()
 {
@@ -24,16 +28,16 @@ int main()
     CKKS_params pms(modulus, e_num, s_num, N_num);
 
     // 파라미터 출력
-    std::cout << "CKKS Parameters:\n";
-    std::cout << std::format("| Precision e:\t2^-{}\n", e_num);
-    std::cout << std::format("| Scale s:\t2^{}\n", s_num);
-    std::cout << std::format("| Depth:\t{}\n", depth);
-    std::cout << "PSI Parameters:\n";
-    std::cout << std::format("| Dimension:\t{}\n", dim);
-    std::cout << std::format("| Set Size:\t{}\n", set_size);
-    std::cout << std::format("| Epsilon:\t2^-{}\n", e_num);
-    std::cout << std::format("| Alpha:\t{}\n", alpha);
-    std::cout << "------------\n";
+    std::cout << "CKKS Parameters:\n"
+                << std::format("| 2^{}\n", N_num)
+                << std::format("| Scale s:\t2^{}\n", s_num)
+                << std::format("| Depth:\t{}\n", depth);
+    std::cout << "PSI Parameters:\n"
+                << std::format("| Dimension:\t{}\n", dim)
+                << std::format("| Set Size:\t{}\n", set_size)
+                << std::format("| Epsilon:\t2^-{}\n", e_num)
+                << std::format("| Alpha:\t{}\n", alpha)
+                << "------------\n";
 
     // Receiver and Sender data
     std::cout << "Generating data samples...\n";
@@ -92,16 +96,16 @@ int main()
     const int iter_f = std::ceil(0.5 * std::log2(alpha - 2)); // 3
     
     seal::Ciphertext sign_result = sum_result;
-    evalPoly(pms, sign_result, coeff_g_init);
+    sign_result = evalPoly(pms, sign_result, coeff_g_init, print_result, check_time);
     for(int i=0; i<iter_g-1; i++)
     {
-        evalPoly(pms, sign_result, coeff_g);
+        sign_result = evalPoly(pms, sign_result, coeff_g, print_result, check_time);
     }
     for(int i=0; i<iter_f-1; i++)
     {
-        evalPoly(pms, sign_result, coeff_f);
+        sign_result = evalPoly(pms, sign_result, coeff_f, print_result, check_time);
     }
-    evalPoly(pms, sign_result, coeff_h);
+    sign_result = evalPoly(pms, sign_result, coeff_h, print_result, check_time);
     pms.encoder->encode(0.5, sign_result.parms_id(), sign_result.scale(), pt);
     pms.eva->add_plain_inplace(sign_result, pt);
     end_time = cur_time();

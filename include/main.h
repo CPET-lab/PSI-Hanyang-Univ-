@@ -63,14 +63,21 @@ std::pair<ddlist, ddlist> make_data_sample(int dim, int receiver_set_size, int s
 // ax^9 + bx^7 + cx^5 + dx^3 + ex
 // = ax(x^8) + x^4(bx^3 + cx) + dx^3 + ex
 // depth 4, cmult 6, pmult 5, add 4
-seal::Ciphertext evalPoly(CKKS_params& pms, seal::Ciphertext& ct, dlist coeff)
+seal::Ciphertext evalPoly(CKKS_params& pms, seal::Ciphertext& ct, dlist coeff, bool print_result=false, bool check_time=false)
 {
+    int start_level, end_level;
+    std::chrono::_V2::system_clock::time_point start_time;
+    std::chrono::_V2::system_clock::time_point end_time;
+
     const double a = coeff[9];
     const double b = coeff[7];
     const double c = coeff[5];
     const double d = coeff[3];
     const double e = coeff[1];
     seal::Plaintext pt_coeff;
+
+    if(print_result) start_level = pms.context->get_context_data(ct.parms_id())->chain_index();
+    if(check_time) start_time = cur_time();
 
     // 1. Create x^2, x^3, x^4
     seal::Ciphertext temp;
@@ -142,6 +149,12 @@ seal::Ciphertext evalPoly(CKKS_params& pms, seal::Ciphertext& ct, dlist coeff)
     pms.eva->add_inplace(term1, term2);
     pms.scale_equal(term1, term3);
     pms.eva->add_inplace(term1, term3);
+    if(print_result) end_level = pms.context->get_context_data(term1.parms_id())->chain_index();
+    if(check_time) end_time = cur_time();
+    
+    //debug print
+    if(print_result) std::cout << std::format("Level: {} -> {}\n", start_level, end_level);
+    if(check_time) calculate_time(start_time, end_time);
 
     return term1;
 }

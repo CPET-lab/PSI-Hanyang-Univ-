@@ -1,5 +1,28 @@
 ## Doubly Efficient Fuzzy Private Set Intersection for High-dimensional Data with Cosine Similarity
 
+### Installation(`CPET_SEAL`)
+
+```bash
+git clone https://github.com/CPET-lab/CPET_SEAL.git
+cd CPET_SEAL
+
+cmake -S . -B build \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX=install
+
+cmake --build build --config Release
+cmake --install build
+```
+### Build/Run
+```bash
+cmake -S . -B build
+cmake --build build
+```
+
+### Parameter settings
+- ```src/main.cpp```
+
+## Original README
 - Hyunjung Son, Seunghun Paik, Yunki Kim, Sunpill Kim, Heewon Chung, and Jae Hong Seo
 - https://eprint.iacr.org/2025/054
 
