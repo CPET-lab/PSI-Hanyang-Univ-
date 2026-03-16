@@ -11,7 +11,7 @@ time_point<high_resolution_clock> cur_time()
 }
 
 //calculate difference between two times.
-void calculate_time(time_point<high_resolution_clock> time1, time_point<high_resolution_clock> time2)
+void calculate_time(time_point<high_resolution_clock> time1, time_point<high_resolution_clock> time2, bool print_line=true)
 {
     auto duration_ms = duration_cast<milliseconds>(time2 - time1);
 
@@ -22,4 +22,5 @@ void calculate_time(time_point<high_resolution_clock> time1, time_point<high_res
     else {
         std::cout << "Execution time: " << duration_ms.count() << " ms" << std::endl;
     }
+    if(print_line) std::cout << "------------\n";
 }

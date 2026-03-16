@@ -58,6 +58,57 @@ std::pair<ddlist, ddlist> make_data_sample(int dim, int receiver_set_size, int s
     return {std::move(receiver_set), std::move(sender_set)};
 }
 
+// Duplicate, Transpose data
+std::pair<ddlist, ddlist> preprocess_data_sample(std::pair<ddlist, ddlist> data_sample, int receiver_set_size, int sender_set_size)
+{
+    // For ease, we duplicate each data's row and transpose in the end.
+    ddlist receiver_set = data_sample.first;
+    ddlist sender_set = data_sample.second;
+
+    // 1. Receiver data
+    ddlist receiver_set_dup;
+    receiver_set_dup.reserve(receiver_set_size * sender_set_size);
+    for(int i=0; i<sender_set_size; i++)
+    {
+        for(int j=0; j<receiver_set_size; j++)
+        {
+            receiver_set_dup.push_back(receiver_set[j]);
+        }
+    }
+
+    // 2. Sender data(Without permutation)
+    ddlist sender_set_dup;
+    sender_set_dup.reserve(receiver_set_size * sender_set_size);
+    for(int i=0; i<sender_set_size; i++)
+    {
+        for(int j=0; j<receiver_set_size; j++)
+        {
+            sender_set_dup.push_back(sender_set[i]);
+        }
+    }
+
+    // 3. Transpose
+    int total_cols = receiver_set_size * sender_set_size;
+    int dim = receiver_set[0].size();
+
+    ddlist receiver_final(dim, dlist(total_cols));
+    ddlist sender_final(dim, dlist(total_cols));
+
+    for(int i=0; i<total_cols; i++)
+    {
+        for(int j=0; j<dim; j++)
+        {
+            receiver_final[j][i] = receiver_set_dup[i][j];
+            sender_final[j][i] = sender_set_dup[i][j];
+        }
+    }
+
+    assert (receiver_final.size() == dim && receiver_final[0].size() == total_cols);
+    assert (sender_final.size() == dim && sender_final[0].size() == total_cols);
+    
+    return {std::move(receiver_final), std::move(sender_final)};
+}
+
 // Evaluate polynomial(Only degree=9 odd functions supported.)
 // Same evaluation process to OPENFHE EvalPolyPS.
 // ax^9 + bx^7 + cx^5 + dx^3 + ex

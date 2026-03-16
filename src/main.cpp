@@ -9,7 +9,8 @@ const int depth = 42;
 
 // PSI params.
 const int dim = 128;
-const int set_size = 256; // 256, 512, 1024
+const int receiver_set_size = 256;
+const int sender_set_size = 256;
 const double epsilon = pow(2.0, -e_num);
 const int alpha = 66;
 
@@ -29,37 +30,47 @@ int main()
 
     // 파라미터 출력
     std::cout << "CKKS Parameters:\n"
-                << std::format("| 2^{}\n", N_num)
+                << std::format("| log N:\t2^{}\n", N_num)
                 << std::format("| Scale s:\t2^{}\n", s_num)
                 << std::format("| Depth:\t{}\n", depth);
+                << std::format("| log Q: 60 + {}*{} + 60\n", s_num, depth)
     std::cout << "PSI Parameters:\n"
-                << std::format("| Dimension:\t{}\n", dim)
-                << std::format("| Set Size:\t{}\n", set_size)
-                << std::format("| Epsilon:\t2^-{}\n", e_num)
-                << std::format("| Alpha:\t{}\n", alpha)
+                << std::format("| Dimension:\t\t{}\n", dim)
+                << std::format("| Receiver Set Size:\t{}\n", receiver_set_size)
+                << std::format("| Sender Set Size:\t{}\n", sender_set_size)
+                << std::format("| Epsilon:\t\t2^-{}\n", e_num)
+                << std::format("| Alpha:\t\t{}\n", alpha)
                 << "------------\n";
 
     // Receiver and Sender data
     std::cout << "Generating data samples...\n";
     auto start_time = cur_time();
-    std::pair<ddlist, ddlist> data_sample = make_data_sample(dim, set_size, set_size);
+    std::pair<ddlist, ddlist> data_sample = make_data_sample(dim, receiver_set_size, sender_set_size);
+    std::pair<ddlist, ddlist> data_sample_modified = preprocess_data_sample(data_sample, receiver_set_size, sender_set_size);
     auto end_time = cur_time();
     calculate_time(start_time, end_time);
     
-    // TODO: Data modification of Receiver, Sender is not implemented yet.
-    std::cout << "Encrypting data samples...\n";
-    start_time = cur_time();
-    ddlist receiver_set = data_sample.first;
-    ddlist sender_set = data_sample.second;
-
-    int size = receiver_set.size(); 
-    std::vector<seal::Ciphertext> receiver_ctxts(size);
-    std::vector<seal::Plaintext> sender_ptxts(size);
+    // Encrypt Receiver's data samples
     seal::Plaintext pt;
-    for(int i=0; i<size; i++)
+    std::cout << "Encrypting Receiver data samples...\n";
+    start_time = cur_time();
+    ddlist receiver_set = data_sample_modified.first;
+    std::vector<seal::Ciphertext> receiver_ctxts(dim);
+    for(int i=0; i<dim; i++)
     {
         pms.encoder->encode(receiver_set[i], scale, pt);
         pms.enc->encrypt(pt, receiver_ctxts[i]);
+    }
+    end_time = cur_time();
+    calculate_time(start_time, end_time);
+    
+    // Encode Sender's data samples
+    std::cout << "Encoding Sender data samples...\n";
+    start_time = cur_time();
+    ddlist sender_set = data_sample_modified.second;
+    std::vector<seal::Plaintext> sender_ptxts(dim);
+    for(int i=0; i<dim; i++)
+    {
         pms.encoder->encode(sender_set[i], scale, sender_ptxts[i]);
     }
     end_time = cur_time();
@@ -72,7 +83,7 @@ int main()
     pms.eva->multiply_plain(receiver_ctxts[0], sender_ptxts[0], sum_result);
     pms.eva->rescale_to_next_inplace(sum_result);
 
-    for(int i=1; i<size; i++)
+    for(int i=1; i<dim; i++)
     {
         pms.eva->multiply_plain(receiver_ctxts[i], sender_ptxts[i], temp);
         pms.eva->rescale_to_next_inplace(temp);
@@ -110,6 +121,6 @@ int main()
     pms.eva->add_plain_inplace(sign_result, pt);
     end_time = cur_time();
     calculate_time(start_time, end_time);
-
+    
     return 0;
 }
