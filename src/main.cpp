@@ -31,9 +31,9 @@ int main()
     // 파라미터 출력
     std::cout << "CKKS Parameters:\n"
                 << std::format("| log N:\t2^{}\n", N_num)
-                << std::format("| Scale s:\t2^{}\n", s_num)
-                << std::format("| Depth:\t{}\n", depth);
-                << std::format("| log Q: 60 + {}*{} + 60\n", s_num, depth)
+                << std::format("| Scale:\t2^{}\n", s_num)
+                << std::format("| Depth:\t{}\n", depth)
+                << std::format("| log Q:\t60 + {}*{} + 60\n", s_num, depth);
     std::cout << "PSI Parameters:\n"
                 << std::format("| Dimension:\t\t{}\n", dim)
                 << std::format("| Receiver Set Size:\t{}\n", receiver_set_size)
@@ -122,5 +122,41 @@ int main()
     end_time = cur_time();
     calculate_time(start_time, end_time);
     
+    // Calcuate Answer
+    const ddlist& receiver_data = data_sample_modified.first;
+    const ddlist& sender_data = data_sample_modified.second;
+    int total_cols = receiver_set_size * sender_set_size;
+    dlist answer(total_cols, 0.0);
+    for (int c = 0; c < total_cols; ++c)
+    {
+        double dot_product = 0.0;
+        for (int r = 0; r < dim; ++r)
+        {
+            dot_product += receiver_data[r][c] * sender_data[r][c];
+        }
+        
+        answer[c] = dot_product;
+    }
+
+    // Compare results
+    pms.dec->decrypt(sign_result, pt);
+    dlist decrypted_result;
+    pms.encoder->decode(pt, decrypted_result);
+    bool correct = true;
+    for(int i=0; i<decrypted_result.size(); i++)
+    {
+        double expected_sign = (answer[i] > 0) ? 1.0 : 0.0;
+        if(std::abs(decrypted_result[i] - expected_sign) > epsilon)
+        {
+            correct = false;
+            std::cout << std::format("Mismatch at index {}: decrypted value = {}, expected sign = {}\n", i, decrypted_result[i], expected_sign);
+        }
+    }
+
+    if(correct)
+    {
+        std::cout << "All results are correct!\n";
+    }
+
     return 0;
 }
