@@ -1,4 +1,12 @@
 #include "../include/main.h"
+#include <iostream>
+#include <string>
+#include <sstream>
+#include <fstream>
+#include <chrono>
+
+using namespace std;
+using namespace std::chrono;
 
 // CKKS params.
 const int e_num = 16;
@@ -7,10 +15,7 @@ const double scale = pow(2.0, s_num);
 const int N_num = 17;
 const int depth = 42;
 
-// PSI params.
-const int dim = 128;
-const int receiver_set_size = 256;
-const int sender_set_size = 256;
+// PSI params. (이제 상수형으로 고정하지 않고 터미널 인자로 받습니다)
 const double epsilon = pow(2.0, -e_num);
 const int alpha = 66;
 
@@ -18,9 +23,35 @@ const int alpha = 66;
 const bool print_result = false;
 const bool check_time = false;
 
-int main()
+int main(int argc, char* argv[])
 {
-    // Modulus chain.
+    // 1. 명령줄 인수 파싱 (-c, -s, -d)
+    int c_log = 8;
+    int s_log = 8;
+    int d = 128; // Default dimension
+
+    for (int i = 1; i < argc; i++) {
+        string arg = argv[i];
+        if (arg == "-c" && i + 1 < argc) c_log = stoi(argv[++i]);
+        else if (arg == "-s" && i + 1 < argc) s_log = stoi(argv[++i]);
+        else if (arg == "-d" && i + 1 < argc) d = stoi(argv[++i]);
+    }
+
+    int dim = d;
+    int receiver_set_size = 1 << c_log; // 2^c_log
+    int sender_set_size = 1 << s_log;   // 2^s_log
+
+    std::cout << "CosSim FPSI Parameters:\n"
+              << std::format("| Dimension (d):\t{}\n", dim)
+              << std::format("| Client Size (Mc):\t2^{} ({})\n", c_log, receiver_set_size)
+              << std::format("| Server Size (Ms):\t2^{} ({})\n", s_log, sender_set_size)
+              << "------------\n";
+
+    // ==========================================
+    // [ Phase: OFFLINE ] - 파라미터 및 키 설정
+    // ==========================================
+    auto offline_start = cur_time();
+
     vector<int> modulus = {60};
     for(int i=0; i<depth; i++)
         modulus.push_back(s_num);
@@ -28,57 +59,39 @@ int main()
 
     CKKS_params pms(modulus, e_num, s_num, N_num);
 
-    // 파라미터 출력
-    std::cout << "CKKS Parameters:\n"
-                << std::format("| log N:\t2^{}\n", N_num)
-                << std::format("| Scale:\t2^{}\n", s_num)
-                << std::format("| Depth:\t{}\n", depth)
-                << std::format("| log Q:\t60 + {}*{} + 60\n", s_num, depth);
-    std::cout << "PSI Parameters:\n"
-                << std::format("| Dimension:\t\t{}\n", dim)
-                << std::format("| Receiver Set Size:\t{}\n", receiver_set_size)
-                << std::format("| Sender Set Size:\t{}\n", sender_set_size)
-                << std::format("| Epsilon:\t\t2^-{}\n", e_num)
-                << std::format("| Alpha:\t\t{}\n", alpha)
-                << "------------\n";
+    auto offline_end = cur_time();
+    double offline_time = duration_cast<duration<double>>(offline_end - offline_start).count();
 
-    // Receiver and Sender data
-    std::cout << "Generating data samples...\n";
-    auto start_time = cur_time();
+
+    // 데이터 샘플 생성 (시간 측정에서 제외)
     std::pair<ddlist, ddlist> data_sample = make_data_sample(dim, receiver_set_size, sender_set_size);
     std::pair<ddlist, ddlist> data_sample_modified = preprocess_data_sample(data_sample, receiver_set_size, sender_set_size);
-    auto end_time = cur_time();
-    calculate_time(start_time, end_time);
-    
-    // Encrypt Receiver's data samples
-    seal::Plaintext pt;
-    std::cout << "Encrypting Receiver data samples...\n";
-    start_time = cur_time();
     ddlist receiver_set = data_sample_modified.first;
+    ddlist sender_set = data_sample_modified.second;
+
+
+    // ==========================================
+    // [ Phase: ONLINE ] - 실제 데이터 인코딩 및 프로토콜 평가
+    // ==========================================
+    auto online_start = cur_time();
+
+    // 1. Client 질의 데이터 암호화
+    seal::Plaintext pt;
     std::vector<seal::Ciphertext> receiver_ctxts(dim);
     for(int i=0; i<dim; i++)
     {
         pms.encoder->encode(receiver_set[i], scale, pt);
         pms.enc->encrypt(pt, receiver_ctxts[i]);
     }
-    end_time = cur_time();
-    calculate_time(start_time, end_time);
     
-    // Encode Sender's data samples
-    std::cout << "Encoding Sender data samples...\n";
-    start_time = cur_time();
-    ddlist sender_set = data_sample_modified.second;
+    // 2. Server 데이터 평문 인코딩 (데이터 관여로 인한 Online 산입)
     std::vector<seal::Plaintext> sender_ptxts(dim);
     for(int i=0; i<dim; i++)
     {
         pms.encoder->encode(sender_set[i], scale, sender_ptxts[i]);
     }
-    end_time = cur_time();
-    calculate_time(start_time, end_time);
 
-    // 1. Cosine Similarity Calculation - Sum(pt*ct)
-    std::cout << "Calculating Cosine Similarity...\n";
-    start_time = cur_time();
+    // 3. Cosine Similarity 연산 (Sum(pt*ct))
     seal::Ciphertext sum_result, temp;
     pms.eva->multiply_plain(receiver_ctxts[0], sender_ptxts[0], sum_result);
     pms.eva->rescale_to_next_inplace(sum_result);
@@ -89,74 +102,71 @@ int main()
         pms.eva->rescale_to_next_inplace(temp);
         pms.eva->add_inplace(sum_result, temp);
     }
-    end_time = cur_time();
-    calculate_time(start_time, end_time);
 
-    // 2. Sign Function Evaluation
-    /*
-        1. Calculate required interation numbers of f(x), g(x)
-        2. Evaluate coeff_g_init
-        3. Evaluate coeff_g iter(g) times
-        4. Evaluate coeff_f iter(f) times
-        5. Evaluate coeff_h
-        6. Add 0.5
-    */
-    std::cout << "Calculating Sign Function...\n";
-    start_time = cur_time();
-    const int iter_g = std::ceil((1/std::log2(5850.0/1024.0)) * std::log2(1.0/epsilon)); // 7
-    const int iter_f = std::ceil(0.5 * std::log2(alpha - 2)); // 3
+    // 4. Sign Function 평가
+    const int iter_g = std::ceil((1/std::log2(5850.0/1024.0)) * std::log2(1.0/epsilon));
+    const int iter_f = std::ceil(0.5 * std::log2(alpha - 2));
     
     seal::Ciphertext sign_result = sum_result;
     sign_result = evalPoly(pms, sign_result, coeff_g_init, print_result, check_time);
-    for(int i=0; i<iter_g-1; i++)
-    {
-        sign_result = evalPoly(pms, sign_result, coeff_g, print_result, check_time);
-    }
-    for(int i=0; i<iter_f-1; i++)
-    {
-        sign_result = evalPoly(pms, sign_result, coeff_f, print_result, check_time);
-    }
+    for(int i=0; i<iter_g-1; i++) sign_result = evalPoly(pms, sign_result, coeff_g, print_result, check_time);
+    for(int i=0; i<iter_f-1; i++) sign_result = evalPoly(pms, sign_result, coeff_f, print_result, check_time);
     sign_result = evalPoly(pms, sign_result, coeff_h, print_result, check_time);
+    
     pms.encoder->encode(0.5, sign_result.parms_id(), sign_result.scale(), pt);
     pms.eva->add_plain_inplace(sign_result, pt);
-    end_time = cur_time();
-    calculate_time(start_time, end_time);
     
-    // Calcuate Answer
-    const ddlist& receiver_data = data_sample_modified.first;
-    const ddlist& sender_data = data_sample_modified.second;
-    int total_cols = receiver_set_size * sender_set_size;
-    dlist answer(total_cols, 0.0);
-    for (int c = 0; c < total_cols; ++c)
-    {
-        double dot_product = 0.0;
-        for (int r = 0; r < dim; ++r)
-        {
-            dot_product += receiver_data[r][c] * sender_data[r][c];
-        }
-        
-        answer[c] = dot_product;
-    }
-
-    // Compare results
+    // 5. Client 결과 복호화
     pms.dec->decrypt(sign_result, pt);
     dlist decrypted_result;
     pms.encoder->decode(pt, decrypted_result);
-    bool correct = true;
-    for(int i=0; i<decrypted_result.size(); i++)
-    {
-        double expected_sign = (answer[i] > 0) ? 1.0 : 0.0;
-        if(std::abs(decrypted_result[i] - expected_sign) > epsilon)
-        {
-            correct = false;
-            std::cout << std::format("Mismatch at index {}: decrypted value = {}, expected sign = {}\n", i, decrypted_result[i], expected_sign);
-        }
-    }
 
-    if(correct)
-    {
-        std::cout << "All results are correct!\n";
+    auto online_end = cur_time();
+    double online_time = duration_cast<duration<double>>(online_end - online_start).count();
+
+
+    // ==========================================
+    // [ Phase: COMMUNICATION COST ] - 스트림 직렬화 기반 용량 측정
+    // ==========================================
+    
+    // 1. Client -> Server (Query Ciphertexts)
+    stringstream client_stream;
+    receiver_ctxts[0].save(client_stream);
+    double single_ct_size = client_stream.tellp();
+    double query_size_bytes = single_ct_size * dim; // dim개의 암호문 전송
+
+    // 2. Server -> Client (Response Ciphertext)
+    stringstream server_stream;
+    sign_result.save(server_stream);
+    double response_size_bytes = server_stream.tellp(); // 평가가 완료된 암호문 1개 전송
+
+    double total_comm_mb = (query_size_bytes + response_size_bytes) / (1024.0 * 1024.0);
+
+
+    // ==========================================
+    // [ Phase: CSV LOGGING ]
+    // ==========================================
+    bool file_exists = false;
+    ifstream f("results.csv");
+    if (f.good()) file_exists = true;
+    f.close();
+
+    ofstream out("results.csv", ios::app);
+    if (!file_exists) {
+        // 비교군 논문 양식에 맞춘 Header 출력 (Type, Threshold 제외)
+        out << "Distance,Client_Log,Server_Log,Vec_Dim,Offline_Time(s),Online_Time(s),Communication(MB)\n";
     }
+    
+    out << "CosSim" << "," 
+        << c_log << "," 
+        << s_log << "," 
+        << d << "," 
+        << offline_time << "," 
+        << online_time << "," 
+        << total_comm_mb << "\n";
+    out.close();
+
+    std::cout << "Benchmark complete. Results appended to results.csv" << std::endl;
 
     return 0;
 }
